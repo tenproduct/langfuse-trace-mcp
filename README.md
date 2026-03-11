@@ -22,7 +22,7 @@ Add to your MCP client config (e.g. VS Code `settings.json`, Claude Desktop `cla
   "mcpServers": {
     "langfuse-trace": {
       "command": "uvx",
-      "args": ["--from", "git+ssh://git@github.com/user/langfuse_trace_mcp", "langfuse-trace-mcp"],
+      "args": ["--from", "git+ssh://git@github.com/tenproduct/langfuse_trace_mcp", "langfuse-trace-mcp"],
       "env": {
         "LANGFUSE_HOST": "https://cloud.langfuse.com",
         "LANGFUSE_PUBLIC_KEY": "pk-...",
