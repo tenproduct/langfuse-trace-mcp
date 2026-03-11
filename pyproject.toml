@@ -1,0 +1,13 @@
+[project]
+name = "langfuse-trace-mcp"
+version = "0.1.0"
+description = "Langfuse Trace MCP Server"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "langfuse==2.60.5",
+    "mcp[cli]>=1.0.0",
+]
+
+[project.scripts]
+langfuse-trace-mcp = "langfuse_trace_mcp:main"
