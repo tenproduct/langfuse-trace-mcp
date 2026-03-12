@@ -151,7 +151,7 @@ Non-dict content:
 
 ## UUID Handling
 
-IDs are displayed as short UUID prefixes (minimum 8 hex chars) — just enough to disambiguate within each result set. The server maintains an in-memory cache of all UUIDs it has returned, so subsequent tools can resolve short prefixes without re-scanning the API.
+IDs are displayed as short UUID prefixes (minimum 8 hex chars) — just enough to disambiguate within each result set. The MCP server maintains an in-memory cache; the CLI persists the cache to `.langfuse-trace-cache.json` in the working directory so short prefixes survive across invocations. Full UUIDs (with dashes) are always accepted directly, bypassing the cache.
 
 Workflow: use `get_traces` first to populate the cache, then reference traces/spans by their short prefixes in all other tools.
 

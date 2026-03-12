@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 from . import server as srv
 from . import tool_docs as docs
+from .uuid_utils import CACHE_FILENAME
 
 
 def _init_client() -> None:
@@ -199,8 +201,9 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="langfuse-trace-cli",
         description=(
             "CLI for exploring Langfuse traces and spans.\n\n"
-            "IDs are short UUID prefixes (min 8 hex chars). Use get-traces first\n"
-            "to populate the cache, then reference traces/spans by prefix.\n\n"
+            "IDs are short UUID prefixes (min 8 hex chars). The cache is persisted to\n"
+            ".langfuse-trace-cache.json so prefixes work across invocations. Full UUIDs\n"
+            "(with dashes) are also accepted directly.\n\n"
             "Requires env vars: LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -370,4 +373,10 @@ def cli_main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
     _init_client()
+
+    cache_path = Path.cwd() / CACHE_FILENAME
+    srv._cache.load(cache_path)
+
     args.func(args)
+
+    srv._cache.save(cache_path)

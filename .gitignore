@@ -8,3 +8,6 @@ wheels/
 
 # Virtual environments
 .venv
+
+# CLI UUID cache
+.langfuse-trace-cache.json
