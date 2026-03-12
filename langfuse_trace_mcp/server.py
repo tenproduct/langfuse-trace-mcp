@@ -8,6 +8,7 @@ from typing import Any
 from langfuse import Langfuse
 from mcp.server.fastmcp import FastMCP
 
+from . import tool_docs as docs
 from .uuid_utils import IdCache, matches_prefix, short_id
 
 # ---------------------------------------------------------------------------
@@ -289,33 +290,6 @@ def get_traces(
     limit: int = 10,
     page: int = 1,
 ) -> str:
-    """Search and list Langfuse traces with optional filtering.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    Results are sorted by timestamp (newest first). Use 'page' for offset
-    pagination.
-
-    CONTEXT BUDGET: Use the 'fields' parameter to limit returned data to
-    only what you need (defaults to ['name']). To compare data across spans,
-    prefer get_difference over fetching full content with get_span_content.
-
-    Workflow: find traces here → drill into one with get_trace_children →
-    inspect spans with get_span → compare with get_difference.
-
-    Args:
-        trace_id_prefix: Filter by trace ID prefix (short hex prefix).
-        name: Filter by trace name prefix.
-        from_timestamp: Start of time range (ISO 8601).
-        to_timestamp: End of time range (ISO 8601).
-        session_id_prefix: Filter by session ID prefix (short hex prefix).
-        environment: Filter by environment prefix.
-        tags: Filter by exact tags.
-        version: Filter by version prefix.
-        fields: Field names to include values for (input/output excluded — use get_trace_content). Defaults to ['name']. Pass None for all.
-        limit: Maximum number of traces to return (default 10).
-        page: Page number for offset pagination (default 1).
-    """
     lf = _lf()
 
     api_kwargs: dict[str, Any] = {"order_by": "timestamp.desc"}
@@ -414,17 +388,6 @@ def get_traces(
 def get_trace_children(
     trace_id_prefix: str,
 ) -> str:
-    """List the immediate children spans of a trace.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    Returns only children (id, name, type, start_time) — no trace-level
-    fields. Use get_trace_content for trace input/output, get_span for
-    span details, or get_difference to compare spans.
-
-    Args:
-        trace_id_prefix: Short UUID prefix identifying the trace.
-    """
     trace_id = _resolve_cached(trace_id_prefix, "trace")
     trace = _lf().fetch_trace(id=trace_id).data
 
@@ -451,24 +414,6 @@ def get_span(
     span_id_prefix: str,
     fields: list[str] | None = ["name"],
 ) -> str:
-    """Get a single span's metadata with selected fields.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    Returns span metadata with only selected field values — unselected
-    fields show '<not fetched>'. Does NOT include children — use
-    get_span_children for that.
-
-    CONTEXT BUDGET: Defaults to ['name'] only. Use 'fields' to request
-    additional metadata (input/output excluded — use get_span_content).
-    To compare data across spans, prefer get_difference over fetching
-    full content with get_span_content.
-
-    Args:
-        trace_id_prefix: Short UUID prefix of the parent trace (scopes span lookup).
-        span_id_prefix: Short UUID prefix identifying the span.
-        fields: Field names to include values for (input/output excluded — use get_span_content). Defaults to ['name']. Pass None for all.
-    """
     span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
     obs = _lf().fetch_observation(id=span_id).data
 
@@ -482,17 +427,6 @@ def get_span_children(
     trace_id_prefix: str,
     span_id_prefix: str,
 ) -> str:
-    """List the immediate children of a span.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    Returns a list of children with their id, name, type, and start_time.
-    Use this to navigate the span tree without fetching full span metadata.
-
-    Args:
-        trace_id_prefix: Short UUID prefix of the parent trace (scopes span lookup).
-        span_id_prefix: Short UUID prefix identifying the parent span.
-    """
     span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
 
     children_resp = _lf().fetch_observations(parent_observation_id=span_id, limit=100)
@@ -518,21 +452,6 @@ def get_trace_content(
     content_type: str,
     fields: list[str] | None = [],
 ) -> str:
-    """Get the full input or output content of a trace.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    NOTE: Prefer get_difference when comparing data across spans — it returns
-    only changes and is much lighter on context.
-
-    If the content is a dict, use 'fields' to select specific keys. Defaults
-    to [] (no values — only unfetched key sizes). Pass None for all fields.
-
-    Args:
-        trace_id_prefix: Short UUID prefix identifying the trace.
-        content_type: 'input' or 'output' — which content to retrieve.
-        fields: Dict keys to return values for. Defaults to [] (sizes only). None for all.
-    """
     if content_type not in ("input", "output"):
         raise ValueError(
             f"content_type must be 'input' or 'output', got {content_type!r}"
@@ -567,22 +486,6 @@ def get_span_content(
     content_type: str,
     fields: list[str] | None = [],
 ) -> str:
-    """Get the full input or output content of a span.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    NOTE: Prefer get_difference when comparing data across spans — it returns
-    only changes and is much lighter on context.
-
-    If the content is a dict, use 'fields' to select specific keys. Defaults
-    to [] (no values — only unfetched key sizes). Pass None for all fields.
-
-    Args:
-        trace_id_prefix: Short UUID prefix of the parent trace (scopes span lookup).
-        span_id_prefix: Short UUID prefix identifying the span.
-        content_type: 'input' or 'output' — which content to retrieve.
-        fields: Dict keys to return values for. Defaults to [] (sizes only). None for all.
-    """
     if content_type not in ("input", "output"):
         raise ValueError(
             f"content_type must be 'input' or 'output', got {content_type!r}"
@@ -619,26 +522,6 @@ def get_difference(
     post_span_id_prefix: str,
     post_field: str,
 ) -> str:
-    """Get the structural difference between input/output of two sibling spans.
-
-    You MUST search for and read LANGFUSE.md if you haven't already.
-
-    PREFERRED over get_span_content when comparing data across spans — returns
-    only changes, keeping context small.
-
-    Returns a JSON with 'added', 'deleted', and 'modified' keys showing
-    only the changes. Recursive for nested dicts.
-
-    Both spans must share the same parent. If comparing the same span, pre_field
-    must be 'input' and post_field must be 'output'.
-
-    Args:
-        trace_id_prefix: Short UUID prefix of the parent trace (scopes span lookup).
-        pre_span_id_prefix: Short UUID prefix for the 'before' span.
-        pre_field: 'input' or 'output' — which field to use from the pre span.
-        post_span_id_prefix: Short UUID prefix for the 'after' span.
-        post_field: 'input' or 'output' — which field to use from the post span.
-    """
     if pre_field not in ("input", "output"):
         raise ValueError(f"pre_field must be 'input' or 'output', got {pre_field!r}")
     if post_field not in ("input", "output"):
@@ -673,6 +556,19 @@ def get_difference(
     diff = _compute_diff(pre_value, post_value)
 
     return json.dumps(diff, indent=2, default=str)
+
+
+# ---------------------------------------------------------------------------
+# Assign generated docstrings
+# ---------------------------------------------------------------------------
+
+get_traces.__doc__ = docs.GET_TRACES.mcp_docstring()
+get_trace_children.__doc__ = docs.GET_TRACE_CHILDREN.mcp_docstring()
+get_trace_content.__doc__ = docs.GET_TRACE_CONTENT.mcp_docstring()
+get_span.__doc__ = docs.GET_SPAN.mcp_docstring()
+get_span_children.__doc__ = docs.GET_SPAN_CHILDREN.mcp_docstring()
+get_span_content.__doc__ = docs.GET_SPAN_CONTENT.mcp_docstring()
+get_difference.__doc__ = docs.GET_DIFFERENCE.mcp_docstring()
 
 
 # ---------------------------------------------------------------------------

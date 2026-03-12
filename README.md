@@ -159,13 +159,33 @@ Workflow: use `get_traces` first to populate the cache, then reference traces/sp
 
 All tools are also available as CLI subcommands via `langfuse-trace-cli`. Requires the same env vars.
 
+Add it as a dev dependency in your project's `pyproject.toml`:
+
+```toml
+[tool.uv.sources]
+langfuse-trace-mcp = { git = "ssh://git@github.com/tenproduct/langfuse-trace-mcp.git" }
+
+[dependency-groups]
+dev = [
+    "langfuse-trace-mcp",
+]
 ```
-langfuse-trace-cli get-traces [--trace-id-prefix X] [--name X] [--from-timestamp X] [--to-timestamp X] [--session-id-prefix X] [--environment X] [--tags T ...] [--version X] [--fields F ...] [--limit N] [--page N]
+
+Then `uv sync` and the `langfuse-trace-cli` command is available in your project's virtualenv. In a terminal session with the correct env vars:
+
+```bash
+uv run langfuse-trace-cli get-traces --limit 5
+```
+
+Use `--all-fields` on the relevant tools to return all fields (equivalent to passing `None` via MCP).
+
+```
+langfuse-trace-cli get-traces [--trace-id-prefix X] [--name X] [--from-timestamp X] [--to-timestamp X] [--session-id-prefix X] [--environment X] [--tags T ...] [--version X] [--fields F ...] [--all-fields] [--limit N] [--page N]
 langfuse-trace-cli get-trace-children <trace_id_prefix>
-langfuse-trace-cli get-trace-content <trace_id_prefix> <input|output> [--fields F ...]
-langfuse-trace-cli get-span <trace_id_prefix> <span_id_prefix> [--fields F ...]
+langfuse-trace-cli get-trace-content <trace_id_prefix> <input|output> [--fields F ...] [--all-fields]
+langfuse-trace-cli get-span <trace_id_prefix> <span_id_prefix> [--fields F ...] [--all-fields]
 langfuse-trace-cli get-span-children <trace_id_prefix> <span_id_prefix>
-langfuse-trace-cli get-span-content <trace_id_prefix> <span_id_prefix> <input|output> [--fields F ...]
+langfuse-trace-cli get-span-content <trace_id_prefix> <span_id_prefix> <input|output> [--fields F ...] [--all-fields]
 langfuse-trace-cli get-difference <trace_id_prefix> <pre_span_id_prefix> <input|output> <post_span_id_prefix> <input|output>
 ```
 
@@ -181,7 +201,7 @@ Add to your MCP client config (e.g. VS Code `settings.json`, Claude Desktop `cla
   "mcpServers": {
     "langfuse-trace": {
       "command": "uvx",
-      "args": ["--from", "git+ssh://git@github.com/tenproduct/langfuse_trace_mcp", "langfuse-trace-mcp"],
+      "args": ["--from", "git+ssh://git@github.com/tenproduct/langfuse-trace-mcp", "langfuse-trace-mcp"],
       "env": {
         "LANGFUSE_HOST": "https://cloud.langfuse.com",
         "LANGFUSE_PUBLIC_KEY": "pk-...",

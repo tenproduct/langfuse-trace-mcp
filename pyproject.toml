@@ -12,3 +12,7 @@ dependencies = [
 [project.scripts]
 langfuse-trace-mcp = "langfuse_trace_mcp:main"
 langfuse-trace-cli = "langfuse_trace_mcp.cli:cli_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
