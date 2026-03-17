@@ -377,6 +377,7 @@ def cli_main() -> None:
     cache_path = Path.cwd() / CACHE_FILENAME
     srv._cache.load(cache_path)
 
-    args.func(args)
-
-    srv._cache.save(cache_path)
+    try:
+        args.func(args)
+    finally:
+        srv._cache.save(cache_path)
