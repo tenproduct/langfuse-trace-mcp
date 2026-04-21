@@ -150,7 +150,7 @@ def _format_trace(
     all_trace_ids: list[str] | None = None,
     strip_unfetched: bool = False,
 ) -> dict:
-    raw = _normalize(trace.dict())
+    raw = _normalize(trace.model_dump())
 
     all_ids = all_trace_ids or []
     raw["id"] = short_id(trace.id, all_ids)
@@ -171,7 +171,7 @@ def _format_observation(
     fields: list[str] | None = None,
     all_obs_ids: list[str] | None = None,
 ) -> dict:
-    raw = _normalize(obs.dict())
+    raw = _normalize(obs.model_dump())
 
     all_ids = all_obs_ids or []
     raw["id"] = short_id(obs.id, all_ids)
@@ -206,9 +206,9 @@ def _resolve_cached(prefix: str, entity: str) -> str:
     if len(prefix) >= 32:
         try:
             if entity == "trace":
-                return lf.fetch_trace(id=prefix).data.id
+                return lf.api.trace.get(prefix).id
             else:
-                return lf.fetch_observation(id=prefix).data.id
+                return lf.api.legacy.observations_v1.get(prefix).id
         except Exception:
             pass
 
@@ -224,7 +224,7 @@ def _resolve_span_in_trace(trace_id_prefix: str, span_id_prefix: str) -> str:
     This avoids ambiguity when short span prefixes collide across traces.
     """
     trace_id = _resolve_cached(trace_id_prefix, "trace")
-    trace = _lf().fetch_trace(id=trace_id).data
+    trace = _lf().api.trace.get(trace_id)
 
     all_obs_ids = [o.id for o in trace.observations]
     _cache.add_many(all_obs_ids, "observation")
@@ -312,7 +312,7 @@ def get_traces(
 
     if not has_client_filters:
         # No client-side filtering — pass page/limit straight to the API.
-        resp = lf.fetch_traces(page=page, limit=limit, **api_kwargs)
+        resp = lf.api.trace.list(page=page, limit=limit, **api_kwargs)
         collected_traces = list(resp.data)
         more_api_pages = resp.meta.page < resp.meta.total_pages
     else:
@@ -329,7 +329,7 @@ def get_traces(
             and api_page <= MAX_SEARCH_PAGES
             and more_api_pages
         ):
-            resp = lf.fetch_traces(page=api_page, limit=100, **api_kwargs)
+            resp = lf.api.trace.list(page=api_page, limit=100, **api_kwargs)
 
             for t in resp.data:
                 if trace_id_prefix and not matches_prefix(t.id, trace_id_prefix):
@@ -389,7 +389,7 @@ def get_trace_children(
     trace_id_prefix: str,
 ) -> str:
     trace_id = _resolve_cached(trace_id_prefix, "trace")
-    trace = _lf().fetch_trace(id=trace_id).data
+    trace = _lf().api.trace.get(trace_id)
 
     children = [obs for obs in trace.observations if obs.parent_observation_id is None]
     child_ids = [c.id for c in children]
@@ -415,7 +415,7 @@ def get_span(
     fields: list[str] | None = ["name"],
 ) -> str:
     span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
-    obs = _lf().fetch_observation(id=span_id).data
+    obs = _lf().api.legacy.observations_v1.get(span_id)
 
     result = _format_observation(obs, fields)
 
@@ -429,7 +429,7 @@ def get_span_children(
 ) -> str:
     span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
 
-    children_resp = _lf().fetch_observations(parent_observation_id=span_id, limit=100)
+    children_resp = _lf().api.legacy.observations_v1.get_many(parent_observation_id=span_id, limit=100)
     child_ids = [c.id for c in children_resp.data]
     _cache.add_many(child_ids, "observation")
 
@@ -458,7 +458,7 @@ def get_trace_content(
         )
 
     trace_id = _resolve_cached(trace_id_prefix, "trace")
-    trace = _lf().fetch_trace(id=trace_id).data
+    trace = _lf().api.trace.get(trace_id)
     value = getattr(trace, content_type)
 
     internal_uuids = _collect_uuids(value)
@@ -492,7 +492,7 @@ def get_span_content(
         )
 
     span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
-    obs = _lf().fetch_observation(id=span_id).data
+    obs = _lf().api.legacy.observations_v1.get(span_id)
     value = getattr(obs, content_type)
 
     internal_uuids = _collect_uuids(value)
@@ -537,8 +537,8 @@ def get_difference(
         )
 
     lf = _lf()
-    pre_obs = lf.fetch_observation(id=pre_id).data
-    post_obs = lf.fetch_observation(id=post_id).data
+    pre_obs = lf.api.legacy.observations_v1.get(pre_id)
+    post_obs = lf.api.legacy.observations_v1.get(post_id)
 
     if (
         pre_id != post_id

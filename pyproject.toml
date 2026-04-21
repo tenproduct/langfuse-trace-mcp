@@ -5,7 +5,7 @@ description = "Langfuse Trace MCP Server"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "langfuse==2.60.5",
+    "langfuse>=3",
     "mcp[cli]>=1.0.0",
 ]
 
@@ -16,3 +16,8 @@ langfuse-trace-cli = "langfuse_trace_mcp.cli:cli_main"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[dependency-groups]
+dev = [
+    "langgraph>=1.1.9",
+]
