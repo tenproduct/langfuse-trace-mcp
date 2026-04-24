@@ -391,9 +391,12 @@ def get_trace_children(
     trace_id = _resolve_cached(trace_id_prefix, "trace")
     trace = _lf().api.trace.get(trace_id)
 
-    children = [obs for obs in trace.observations if obs.parent_observation_id is None]
-    child_ids = [c.id for c in children]
     all_obs_ids = [o.id for o in trace.observations]
+    obs_id_set = set(all_obs_ids)
+    # Top-level = parent is None OR parent is not in the observations set
+    # (OTEL/LangGraph nests everything under a root span that isn't an observation)
+    children = [obs for obs in trace.observations if obs.parent_observation_id not in obs_id_set]
+    child_ids = [c.id for c in children]
     _cache.add_many(all_obs_ids, "observation")
 
     return json.dumps(
