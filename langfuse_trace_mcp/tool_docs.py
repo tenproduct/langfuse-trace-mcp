@@ -49,7 +49,8 @@ METADATA_FIELDS = Param(
     "Pass None for all."
 )
 CONTENT_FIELDS = Param(
-    "Dict keys to return values for. Defaults to [] (sizes only). None for all."
+    "Dict keys to return values for. Defaults to all content; pass an empty "
+    "list for sizes only, or None for all."
 )
 
 # ---------------------------------------------------------------------------
@@ -102,8 +103,9 @@ GET_TRACE_CONTENT = ToolDoc(
         "NOTE: Prefer get_difference when comparing data across spans — it returns\n"
         "only changes and is much lighter on context.\n"
         "\n"
-        "If the content is a dict, use 'fields' to select specific keys. Defaults\n"
-        "to [] (no values — only unfetched key sizes). Pass None for all fields."
+        "By default the full content is returned. If the content is a dict, pass\n"
+        "'fields' to select specific keys; pass an empty list to fetch no values\n"
+        "and see only unfetched key sizes."
     ),
     params={
         "trace_id_prefix": TRACE_ID_PREFIX,
@@ -149,8 +151,9 @@ GET_SPAN_CONTENT = ToolDoc(
         "NOTE: Prefer get_difference when comparing data across spans — it returns\n"
         "only changes and is much lighter on context.\n"
         "\n"
-        "If the content is a dict, use 'fields' to select specific keys. Defaults\n"
-        "to [] (no values — only unfetched key sizes). Pass None for all fields."
+        "By default the full content is returned. If the content is a dict, pass\n"
+        "'fields' to select specific keys; pass an empty list to fetch no values\n"
+        "and see only unfetched key sizes."
     ),
     params={
         "trace_id_prefix": TRACE_ID_PREFIX_SCOPE,

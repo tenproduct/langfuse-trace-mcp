@@ -173,7 +173,7 @@ def _add_content_fields(parser: argparse.ArgumentParser, doc: docs.ToolDoc) -> N
     parser.add_argument(
         "--fields",
         nargs="*",
-        default=[],
+        default=None,
         help=doc.params["fields"].description,
     )
     parser.add_argument(

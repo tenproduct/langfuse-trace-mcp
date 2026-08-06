@@ -453,7 +453,7 @@ def get_span_children(
 def get_trace_content(
     trace_id_prefix: str,
     content_type: str,
-    fields: list[str] | None = [],
+    fields: list[str] | None = None,
 ) -> str:
     if content_type not in ("input", "output"):
         raise ValueError(
@@ -487,7 +487,7 @@ def get_span_content(
     trace_id_prefix: str,
     span_id_prefix: str,
     content_type: str,
-    fields: list[str] | None = [],
+    fields: list[str] | None = None,
 ) -> str:
     if content_type not in ("input", "output"):
         raise ValueError(
