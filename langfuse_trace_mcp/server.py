@@ -46,7 +46,7 @@ you which fields are meaningful to compare or retrieve.
 
 Use the 'fields' parameter on every tool that has one to keep responses small. \
 Prefer get_difference over get_span_content when comparing data across spans.
-IDs are short UUID prefixes (like git short hashes); span tools require the \
+IDs are short hex prefixes (like git short hashes); span tools require the \
 parent trace prefix to scope lookups.\
 
 Traces can be paginated with 'page' and 'limit', but for large result sets it's more efficient to \

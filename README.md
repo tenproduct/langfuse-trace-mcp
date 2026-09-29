@@ -2,7 +2,9 @@
 
 A UVX-based MCP server (stdio transport) for exploring Langfuse traces and spans. Config via environment variables: `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`.
 
-Requires **Langfuse v4** (including `events_only` mode): all reads go through the v2 observations API (`GET /api/public/v2/observations`), since v4 `events_only` disables the traces and v1 observations endpoints. A trace is read from its root observation. Needs `langfuse>=4.5` (the SDK version that exposes that API).
+Requires **Langfuse v4** (including `events_only` mode): all reads go through the v2 observations API (`GET /api/public/v2/observations`), since v4 `events_only` disables the traces and v1 observations endpoints. A trace is read from its root observation. Needs `langfuse>=4.5` (the SDK version that exposes that API). The bundled `docker-compose.yml` still runs Langfuse v3 — use a v4 stack for local development.
+
+The v2 API truncates `metadata` values to 200 characters, so `get_span` metadata fields may be truncated.
 
 IDs are shown as short hex prefixes (minimum 8 chars, like git short hashes) and cached for fast resolution. UUIDs embedded within content values are also detected, shortened, and added to the cache automatically.
 
