@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
 from . import server as srv
 from . import tool_docs as docs
-from .uuid_utils import CACHE_FILENAME
+from .uuid_utils import cache_path
 
 
-def _init_client() -> None:
-    """Initialise the Langfuse client from env vars (same as the MCP entry point)."""
+def _init_client() -> str:
+    """Initialise the Langfuse client from env vars (same as the MCP entry point).
+
+    Returns the host, which keys the on-disk id cache."""
     import os
 
     from langfuse import Langfuse
@@ -42,6 +43,7 @@ def _init_client() -> None:
         public_key=public_key,
         secret_key=secret_key,
     )
+    return host
 
 
 # ---------------------------------------------------------------------------
@@ -201,10 +203,12 @@ def _build_parser() -> argparse.ArgumentParser:
         prog="langfuse-trace-cli",
         description=(
             "CLI for exploring Langfuse traces and spans.\n\n"
-            "IDs are short UUID prefixes (min 8 hex chars). The cache is persisted to\n"
-            ".langfuse-trace-cache.json so prefixes work across invocations. Full UUIDs\n"
-            "(with dashes) are also accepted directly.\n\n"
-            "Requires env vars: LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY"
+            "IDs are short hex prefixes (min 8 chars, like git short hashes). Full ids\n"
+            "and uncached prefixes are resolved against Langfuse. Seen ids are cached in\n"
+            "$XDG_CACHE_HOME/langfuse-trace-mcp/<host>.json (default ~/.cache; override\n"
+            "with LANGFUSE_TRACE_CACHE); an unwritable cache is skipped with a warning.\n\n"
+            "Requires env vars: LANGFUSE_HOST, LANGFUSE_PUBLIC_KEY, LANGFUSE_SECRET_KEY\n"
+            "Reads Langfuse v4 through the v2 observations API (works in events_only mode)."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -372,12 +376,15 @@ def _build_parser() -> argparse.ArgumentParser:
 def cli_main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
-    _init_client()
+    host = _init_client()
 
-    cache_path = Path.cwd() / CACHE_FILENAME
-    srv._cache.load(cache_path)
+    path = cache_path(host)
+    srv._cache.load(path)
 
     try:
         args.func(args)
     finally:
-        srv._cache.save(cache_path)
+        try:
+            srv._cache.save(path)
+        except OSError as e:
+            print(f"warning: could not write id cache {path}: {e}", file=sys.stderr)

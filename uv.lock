@@ -428,7 +428,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "langfuse", specifier = ">=3" },
+    { name = "langfuse", specifier = ">=4.5" },
     { name = "mcp", extras = ["cli"], specifier = ">=1.0.0,<2" },
 ]
 

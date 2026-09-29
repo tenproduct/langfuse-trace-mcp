@@ -2,7 +2,9 @@
 
 A UVX-based MCP server (stdio transport) for exploring Langfuse traces and spans. Config via environment variables: `LANGFUSE_HOST`, `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`.
 
-IDs are shown as short UUID prefixes (minimum 8 hex chars, like git short hashes) and cached server-side for fast resolution. UUIDs embedded within content values are also detected, shortened, and added to the cache automatically.
+Requires **Langfuse v4** (including `events_only` mode): all reads go through the v2 observations API (`GET /api/public/v2/observations`), since v4 `events_only` disables the traces and v1 observations endpoints. A trace is read from its root observation. Needs `langfuse>=4.5` (the SDK version that exposes that API).
+
+IDs are shown as short hex prefixes (minimum 8 chars, like git short hashes) and cached for fast resolution. UUIDs embedded within content values are also detected, shortened, and added to the cache automatically.
 
 The server instructs the agent to look for a `LANGFUSE.md` file in the project root for codebase-specific trace guidance.
 
@@ -12,7 +14,7 @@ The server instructs the agent to look for a `LANGFUSE.md` file in the project r
 
 Search and list traces, sorted by timestamp (newest first). Input/output content is never included — use `get_trace_content`.
 
-Prefix filters (`trace_id_prefix`, `name`, `session_id_prefix`, `environment`, `version`) are applied client-side; `tags`, `from_timestamp`, `to_timestamp` are passed to the API. Client-side filtering scans up to 10 API pages of 100 results each.
+Each trace is its root observation, so trace fields are `id`, `name`, `timestamp`, `environment`, `session_id`, `user_id`, `version`, `level`. All filters are passed to the API as v2 `filter` conditions: prefix filters (`trace_id_prefix`, `name`, `session_id_prefix`, `environment`, `version`) as `starts with`, `tags` as `all of`, timestamps against the root's start time.
 
 | Parameter           | Type                | Default    | Description                                                     |
 | ------------------- | ------------------- | ---------- | --------------------------------------------------------------- |
@@ -22,7 +24,7 @@ Prefix filters (`trace_id_prefix`, `name`, `session_id_prefix`, `environment`, `
 | `to_timestamp`      | `str \| null`       | `null`     | End of time range (ISO 8601).                                   |
 | `session_id_prefix` | `str \| null`       | `null`     | Short hex prefix to filter session IDs.                         |
 | `environment`       | `str \| null`       | `null`     | Environment prefix filter.                                      |
-| `tags`              | `list[str] \| null` | `null`     | Exact tag match.                                                |
+| `tags`              | `list[str] \| null` | `null`     | Traces carrying all of these tags.                              |
 | `version`           | `str \| null`       | `null`     | Version prefix filter.                                          |
 | `fields`            | `list[str] \| null` | `["name"]` | Metadata fields to include. `null` = all (except input/output). |
 | `limit`             | `int`               | `10`       | Page size.                                                      |
@@ -149,11 +151,11 @@ Non-dict content:
 { "pre": "<old_value>", "post": "<new_value>" }
 ```
 
-## UUID Handling
+## ID Handling
 
-IDs are displayed as short UUID prefixes (minimum 8 hex chars) — just enough to disambiguate within each result set. The MCP server maintains an in-memory cache; the CLI persists the cache to `.langfuse-trace-cache.json` in the working directory so short prefixes survive across invocations. Full UUIDs (with dashes) are always accepted directly, bypassing the cache.
+IDs are displayed as short hex prefixes (minimum 8 chars) — just enough to disambiguate within each result set. The MCP server maintains an in-memory cache; the CLI persists it per user and per host to `$XDG_CACHE_HOME/langfuse-trace-mcp/<host>.json` (default `~/.cache/…`; override the file with `LANGFUSE_TRACE_CACHE`). An unwritable cache location only prints a warning.
 
-Workflow: use `get_traces` first to populate the cache, then reference traces/spans by their short prefixes in all other tools.
+A trace prefix that is not in the cache — or a full trace id — is resolved against the API, so no prior `get_traces` call is needed. Span prefixes are resolved within the given trace.
 
 ## CLI
 

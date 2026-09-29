@@ -36,12 +36,14 @@ class ToolDoc:
 # Shared param definitions (reused across tools)
 # ---------------------------------------------------------------------------
 
-TRACE_ID_PREFIX = Param("Short UUID prefix identifying the trace.")
-TRACE_ID_PREFIX_SCOPE = Param(
-    "Short UUID prefix of the parent trace (scopes span lookup)."
+TRACE_ID_PREFIX = Param(
+    "Short hex prefix (or full id) identifying the trace."
 )
-SPAN_ID_PREFIX = Param("Short UUID prefix identifying the span.")
-SPAN_ID_PREFIX_PARENT = Param("Short UUID prefix identifying the parent span.")
+TRACE_ID_PREFIX_SCOPE = Param(
+    "Short hex prefix (or full id) of the parent trace (scopes span lookup)."
+)
+SPAN_ID_PREFIX = Param("Short hex prefix identifying the span.")
+SPAN_ID_PREFIX_PARENT = Param("Short hex prefix identifying the parent span.")
 CONTENT_TYPE = Param("'input' or 'output' — which content to retrieve.")
 METADATA_FIELDS = Param(
     "Field names to include values for (input/output excluded — use "
@@ -60,8 +62,10 @@ CONTENT_FIELDS = Param(
 GET_TRACES = ToolDoc(
     summary="Search and list Langfuse traces with optional filtering.",
     body=(
-        "Results are sorted by timestamp (newest first). Use 'page' for offset\n"
-        "pagination.\n"
+        "Each trace is read from its root observation (Langfuse v4 has no traces\n"
+        "endpoint), so trace fields are: id, name, timestamp, environment,\n"
+        "session_id, user_id, version, level. Results are sorted by timestamp\n"
+        "(newest first). Use 'page' for offset pagination.\n"
         "\n"
         "CONTEXT BUDGET: Use the 'fields' parameter to limit returned data to\n"
         "only what you need (defaults to ['name']). To compare data across spans,\n"
@@ -77,7 +81,7 @@ GET_TRACES = ToolDoc(
         "to_timestamp": Param("End of time range (ISO 8601)."),
         "session_id_prefix": Param("Filter by session ID prefix (short hex prefix)."),
         "environment": Param("Filter by environment prefix."),
-        "tags": Param("Filter by exact tags."),
+        "tags": Param("Filter to traces carrying all of these tags."),
         "version": Param("Filter by version prefix."),
         "fields": METADATA_FIELDS,
         "limit": Param("Maximum number of traces to return (default 10)."),
@@ -177,11 +181,11 @@ GET_DIFFERENCE = ToolDoc(
     ),
     params={
         "trace_id_prefix": TRACE_ID_PREFIX_SCOPE,
-        "pre_span_id_prefix": Param("Short UUID prefix for the 'before' span."),
+        "pre_span_id_prefix": Param("Short hex prefix for the 'before' span."),
         "pre_field": Param(
             "'input' or 'output' — which field to use from the pre span."
         ),
-        "post_span_id_prefix": Param("Short UUID prefix for the 'after' span."),
+        "post_span_id_prefix": Param("Short hex prefix for the 'after' span."),
         "post_field": Param(
             "'input' or 'output' — which field to use from the post span."
         ),

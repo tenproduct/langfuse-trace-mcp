@@ -9,7 +9,7 @@ from langfuse import Langfuse
 from mcp.server.fastmcp import FastMCP
 
 from . import tool_docs as docs
-from .uuid_utils import IdCache, matches_prefix, short_id
+from .uuid_utils import IdCache, short_id
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -21,7 +21,12 @@ UUID_RE = re.compile(
 _SNAKE_RE1 = re.compile(r"(.)([A-Z][a-z]+)")
 _SNAKE_RE2 = re.compile(r"([a-z0-9])([A-Z])")
 NOT_FETCHED = "<not fetched>"
-MAX_SEARCH_PAGES = 10
+MAX_PAGE_SIZE = 1000
+
+# Field groups of the v2 observations API (``core`` is always returned).
+FIELDS_LISTING = "core,basic"
+FIELDS_METADATA = "core,basic,time,metadata,model,usage,prompt,metrics"
+FIELDS_CONTENT = "core,basic,io"
 
 # ---------------------------------------------------------------------------
 # Server & state
@@ -144,21 +149,104 @@ def _content_result(
     return value, None
 
 
+def _parse_io(value: Any) -> Any:
+    """v2 observations return input/output as raw strings; decode JSON when possible."""
+    if isinstance(value, str):
+        try:
+            return json.loads(value)
+        except ValueError:
+            return value
+    return value
+
+
+def _cond(column: str, operator: str, value: Any, type_: str = "string") -> dict:
+    return {"type": type_, "column": column, "operator": operator, "value": value}
+
+
+ROOT_COND = _cond("isRootObservation", "=", True, "boolean")
+
+
+def _list_observations(
+    conditions: list[dict],
+    *,
+    fields: str = FIELDS_LISTING,
+    max_rows: int = MAX_PAGE_SIZE,
+) -> tuple[list[Any], bool]:
+    """List observations matching ``conditions`` via the v2 observations API.
+
+    Every constraint goes into the ``filter`` JSON: when it is present the API
+    ignores the individual query-parameter filters. Walks the cursor until
+    ``max_rows`` rows are collected; returns (rows, more_rows_available).
+    """
+    rows: list[Any] = []
+    cursor: str | None = None
+    while True:
+        resp = _lf().api.observations.get_many(
+            filter=json.dumps(conditions),
+            fields=fields,
+            limit=min(max_rows - len(rows), MAX_PAGE_SIZE),
+            cursor=cursor,
+        )
+        rows.extend(resp.data)
+        cursor = resp.meta.cursor
+        if not cursor or not resp.data or len(rows) >= max_rows:
+            return rows[:max_rows], bool(cursor)
+
+
+def _trace_observations(trace_id: str) -> list[Any]:
+    rows, _ = _list_observations(
+        [_cond("traceId", "=", trace_id)], max_rows=100_000
+    )
+    return rows
+
+
+def _get_root(trace_id: str, fields: str = FIELDS_LISTING) -> Any:
+    """A trace in Langfuse v4 is represented by its root observation."""
+    rows, _ = _list_observations(
+        [ROOT_COND, _cond("traceId", "=", trace_id)], fields=fields, max_rows=1
+    )
+    if not rows:
+        raise ValueError(f"No root observation found for trace {trace_id!r}.")
+    return rows[0]
+
+
+def _get_observation(trace_id: str, obs_id: str, fields: str) -> Any:
+    rows, _ = _list_observations(
+        [_cond("traceId", "=", trace_id), _cond("id", "=", obs_id)],
+        fields=fields,
+        max_rows=1,
+    )
+    if not rows:
+        raise ValueError(f"No span {obs_id!r} found in trace {trace_id!r}.")
+    return rows[0]
+
+
+def _trace_record(root: Any) -> dict:
+    """Trace-level fields, taken from the trace's root observation."""
+    return {
+        "id": root.trace_id,
+        "name": root.name,
+        "timestamp": root.start_time,
+        "environment": root.environment,
+        "session_id": root.session_id,
+        "user_id": root.user_id,
+        "version": root.version,
+        "level": root.level,
+    }
+
+
 def _format_trace(
-    trace: Any,
+    root: Any,
     fields: list[str] | None = None,
     all_trace_ids: list[str] | None = None,
     strip_unfetched: bool = False,
 ) -> dict:
-    raw = _normalize(trace.model_dump())
+    raw = _trace_record(root)
 
     all_ids = all_trace_ids or []
-    raw["id"] = short_id(trace.id, all_ids)
+    raw["id"] = short_id(root.trace_id, all_ids)
     if raw.get("session_id"):
         raw["session_id"] = short_id(raw["session_id"], all_ids)
-
-    raw.pop("observations", None)
-    raw.pop("scores", None)
 
     filtered = _filter_fields(raw, fields)
     if strip_unfetched:
@@ -194,39 +282,38 @@ def _observation_summary(obs: Any, all_obs_ids: list[str] | None = None) -> dict
     }
 
 
-def _resolve_cached(prefix: str, entity: str) -> str:
-    """Resolve a prefix using the cache. Falls back to API for exact UUID."""
+def _resolve_trace(prefix: str) -> str:
+    """Resolve a trace id prefix via the cache, falling back to the API.
+
+    Full ids and prefixes that were never cached are looked up against the
+    root observations, so no prior get_traces call is required.
+    """
     try:
-        return _cache.resolve(prefix, entity)
+        return _cache.resolve(prefix, "trace")
     except ValueError:
         pass
 
-    # If the prefix looks like a full UUID, try a direct API fetch
-    lf = _lf()
-    if len(prefix) >= 32:
-        try:
-            if entity == "trace":
-                return lf.api.trace.get(prefix).id
-            else:
-                return lf.api.legacy.observations_v1.get(prefix).id
-        except Exception:
-            pass
-
-    raise ValueError(
-        f"No {entity} found matching prefix {prefix!r}. "
-        "Use get_traces or get_trace_children first to load IDs into the cache."
+    rows, _ = _list_observations(
+        [ROOT_COND, _cond("traceId", "starts with", prefix.lower())], max_rows=2
     )
+    matches = sorted({r.trace_id for r in rows})
+    if not matches:
+        raise ValueError(f"No trace found matching prefix {prefix!r}.")
+    if len(matches) > 1:
+        display = [short_id(m, matches) for m in matches]
+        raise ValueError(f"Multiple traces match prefix {prefix!r}: {display}")
+    _cache.add(matches[0], "trace")
+    return matches[0]
 
 
-def _resolve_span_in_trace(trace_id_prefix: str, span_id_prefix: str) -> str:
+def _resolve_span_in_trace(trace_id_prefix: str, span_id_prefix: str) -> tuple[str, str]:
     """Resolve a span prefix scoped to a specific trace's observations.
 
     This avoids ambiguity when short span prefixes collide across traces.
+    Returns (trace_id, span_id).
     """
-    trace_id = _resolve_cached(trace_id_prefix, "trace")
-    trace = _lf().api.trace.get(trace_id)
-
-    all_obs_ids = [o.id for o in trace.observations]
+    trace_id = _resolve_trace(trace_id_prefix)
+    all_obs_ids = [o.id for o in _trace_observations(trace_id)]
     _cache.add_many(all_obs_ids, "observation")
 
     prefix_lower = span_id_prefix.lower()
@@ -242,7 +329,7 @@ def _resolve_span_in_trace(trace_id_prefix: str, span_id_prefix: str) -> str:
             f"Multiple spans match prefix {span_id_prefix!r} in trace "
             f"{trace_id_prefix!r}: {display}"
         )
-    return matches[0]
+    return trace_id, matches[0]
 
 
 def _compute_diff(pre: Any, post: Any) -> dict:
@@ -290,76 +377,36 @@ def get_traces(
     limit: int = 10,
     page: int = 1,
 ) -> str:
-    lf = _lf()
-
-    api_kwargs: dict[str, Any] = {"order_by": "timestamp.desc"}
+    # Langfuse v4 (events_only) has no traces endpoint: a trace is listed as
+    # its root observation, newest first.
+    conditions = [ROOT_COND]
+    if trace_id_prefix:
+        conditions.append(_cond("traceId", "starts with", trace_id_prefix.lower()))
+    if name:
+        conditions.append(_cond("name", "starts with", name))
+    if session_id_prefix:
+        conditions.append(_cond("sessionId", "starts with", session_id_prefix))
+    if environment:
+        conditions.append(_cond("environment", "starts with", environment))
+    if version:
+        conditions.append(_cond("version", "starts with", version))
     if from_timestamp:
-        api_kwargs["from_timestamp"] = datetime.fromisoformat(from_timestamp)
+        ts = datetime.fromisoformat(from_timestamp).isoformat()
+        conditions.append(_cond("startTime", ">=", ts, "datetime"))
     if to_timestamp:
-        api_kwargs["to_timestamp"] = datetime.fromisoformat(to_timestamp)
+        ts = datetime.fromisoformat(to_timestamp).isoformat()
+        conditions.append(_cond("startTime", "<=", ts, "datetime"))
     if tags:
-        api_kwargs["tags"] = tags
+        conditions.append(_cond("tags", "all of", tags, "arrayOptions"))
 
-    has_client_filters = any(
-        [
-            trace_id_prefix,
-            name,
-            session_id_prefix,
-            environment,
-            version,
-        ]
-    )
+    # Cursor pagination only: fetch through the requested page and slice.
+    # The extra row tells us whether another page exists.
+    skip = (page - 1) * limit
+    rows, more = _list_observations(conditions, max_rows=skip + limit + 1)
+    collected_traces = rows[skip : skip + limit]
+    more_api_pages = more or len(rows) > skip + limit
 
-    if not has_client_filters:
-        # No client-side filtering — pass page/limit straight to the API.
-        resp = lf.api.trace.list(page=page, limit=limit, **api_kwargs)
-        collected_traces = list(resp.data)
-        more_api_pages = resp.meta.page < resp.meta.total_pages
-    else:
-        # Client-side filtering: scan from API page 1, skip first
-        # (page-1)*limit matches, then collect up to limit matches.
-        skip = (page - 1) * limit
-        skipped = 0
-        collected_traces = []
-        api_page = 1
-        more_api_pages = True
-
-        while (
-            len(collected_traces) < limit
-            and api_page <= MAX_SEARCH_PAGES
-            and more_api_pages
-        ):
-            resp = lf.api.trace.list(page=api_page, limit=100, **api_kwargs)
-
-            for t in resp.data:
-                if trace_id_prefix and not matches_prefix(t.id, trace_id_prefix):
-                    continue
-                if name and (not t.name or not t.name.startswith(name)):
-                    continue
-                if session_id_prefix and (
-                    not t.session_id
-                    or not matches_prefix(t.session_id, session_id_prefix)
-                ):
-                    continue
-                if environment and (
-                    not t.environment or not t.environment.startswith(environment)
-                ):
-                    continue
-                if version and (not t.version or not t.version.startswith(version)):
-                    continue
-
-                if skipped < skip:
-                    skipped += 1
-                    continue
-
-                collected_traces.append(t)
-                if len(collected_traces) >= limit:
-                    break
-
-            more_api_pages = resp.meta.page < resp.meta.total_pages
-            api_page += 1
-
-    all_ids = [t.id for t in collected_traces]
+    all_ids = [t.trace_id for t in collected_traces]
     _cache.add_many(all_ids, "trace")
 
     # Build compact traces (no per-row placeholders) + single top-level unfetched list
@@ -388,20 +435,25 @@ def get_traces(
 def get_trace_children(
     trace_id_prefix: str,
 ) -> str:
-    trace_id = _resolve_cached(trace_id_prefix, "trace")
-    trace = _lf().api.trace.get(trace_id)
+    trace_id = _resolve_trace(trace_id_prefix)
+    observations = _trace_observations(trace_id)
+    if not observations:
+        raise ValueError(f"No observations found for trace {trace_id_prefix!r}.")
 
-    all_obs_ids = [o.id for o in trace.observations]
+    all_obs_ids = [o.id for o in observations]
     obs_id_set = set(all_obs_ids)
     # Top-level = parent is None OR parent is not in the observations set
-    # (OTEL/LangGraph nests everything under a root span that isn't an observation)
-    children = [obs for obs in trace.observations if obs.parent_observation_id not in obs_id_set]
+    # (OTEL/LangGraph can nest everything under a span that isn't exported)
+    children = sorted(
+        (obs for obs in observations if obs.parent_observation_id not in obs_id_set),
+        key=lambda o: o.start_time,
+    )
     child_ids = [c.id for c in children]
     _cache.add_many(all_obs_ids, "observation")
 
     return json.dumps(
         {
-            "trace_id": short_id(trace.id, []),
+            "trace_id": short_id(trace_id, []),
             "children": [
                 _observation_summary(c, all_obs_ids=child_ids) for c in children
             ],
@@ -417,8 +469,8 @@ def get_span(
     span_id_prefix: str,
     fields: list[str] | None = ["name"],
 ) -> str:
-    span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
-    obs = _lf().api.legacy.observations_v1.get(span_id)
+    trace_id, span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
+    obs = _get_observation(trace_id, span_id, FIELDS_METADATA)
 
     result = _format_observation(obs, fields)
 
@@ -430,18 +482,21 @@ def get_span_children(
     trace_id_prefix: str,
     span_id_prefix: str,
 ) -> str:
-    span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
+    trace_id, span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
 
-    children_resp = _lf().api.legacy.observations_v1.get_many(parent_observation_id=span_id, limit=100)
-    child_ids = [c.id for c in children_resp.data]
+    children, _ = _list_observations(
+        [_cond("traceId", "=", trace_id), _cond("parentObservationId", "=", span_id)],
+        max_rows=100,
+    )
+    children.sort(key=lambda o: o.start_time)
+    child_ids = [c.id for c in children]
     _cache.add_many(child_ids, "observation")
 
     return json.dumps(
         {
             "span_id": short_id(span_id, []),
             "children": [
-                _observation_summary(c, all_obs_ids=child_ids)
-                for c in children_resp.data
+                _observation_summary(c, all_obs_ids=child_ids) for c in children
             ],
         },
         indent=2,
@@ -460,9 +515,10 @@ def get_trace_content(
             f"content_type must be 'input' or 'output', got {content_type!r}"
         )
 
-    trace_id = _resolve_cached(trace_id_prefix, "trace")
-    trace = _lf().api.trace.get(trace_id)
-    value = getattr(trace, content_type)
+    trace_id = _resolve_trace(trace_id_prefix)
+    # The trace's input/output is its root observation's.
+    root = _get_root(trace_id, FIELDS_CONTENT)
+    value = _parse_io(getattr(root, content_type))
 
     internal_uuids = _collect_uuids(value)
     if internal_uuids:
@@ -472,7 +528,7 @@ def get_trace_content(
     result_value, unfetched = _content_result(value, fields)
 
     out: dict[str, Any] = {
-        "id": short_id(trace.id, []),
+        "id": short_id(trace_id, []),
         "content_type": content_type,
         "result": result_value,
     }
@@ -494,9 +550,9 @@ def get_span_content(
             f"content_type must be 'input' or 'output', got {content_type!r}"
         )
 
-    span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
-    obs = _lf().api.legacy.observations_v1.get(span_id)
-    value = getattr(obs, content_type)
+    trace_id, span_id = _resolve_span_in_trace(trace_id_prefix, span_id_prefix)
+    obs = _get_observation(trace_id, span_id, FIELDS_CONTENT)
+    value = _parse_io(getattr(obs, content_type))
 
     internal_uuids = _collect_uuids(value)
     if internal_uuids:
@@ -530,8 +586,8 @@ def get_difference(
     if post_field not in ("input", "output"):
         raise ValueError(f"post_field must be 'input' or 'output', got {post_field!r}")
 
-    pre_id = _resolve_span_in_trace(trace_id_prefix, pre_span_id_prefix)
-    post_id = _resolve_span_in_trace(trace_id_prefix, post_span_id_prefix)
+    trace_id, pre_id = _resolve_span_in_trace(trace_id_prefix, pre_span_id_prefix)
+    _, post_id = _resolve_span_in_trace(trace_id_prefix, post_span_id_prefix)
 
     if pre_id == post_id and not (pre_field == "input" and post_field == "output"):
         raise ValueError(
@@ -539,9 +595,8 @@ def get_difference(
             "and post_field must be 'output'"
         )
 
-    lf = _lf()
-    pre_obs = lf.api.legacy.observations_v1.get(pre_id)
-    post_obs = lf.api.legacy.observations_v1.get(post_id)
+    pre_obs = _get_observation(trace_id, pre_id, FIELDS_CONTENT)
+    post_obs = _get_observation(trace_id, post_id, FIELDS_CONTENT)
 
     if (
         pre_id != post_id
@@ -553,8 +608,8 @@ def get_difference(
             f"Post span parent: {post_obs.parent_observation_id}"
         )
 
-    pre_value = getattr(pre_obs, pre_field)
-    post_value = getattr(post_obs, post_field)
+    pre_value = _parse_io(getattr(pre_obs, pre_field))
+    post_value = _parse_io(getattr(post_obs, post_field))
 
     diff = _compute_diff(pre_value, post_value)
 

@@ -5,7 +5,7 @@ description = "Langfuse Trace MCP Server"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "langfuse>=3",
+    "langfuse>=4.5",
     "mcp[cli]>=1.0.0,<2",
 ]
 

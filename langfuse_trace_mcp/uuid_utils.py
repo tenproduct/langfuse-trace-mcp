@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 
@@ -8,7 +9,20 @@ _FULL_UUID_RE = re.compile(
     r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
 )
 
-CACHE_FILENAME = ".langfuse-trace-cache.json"
+
+def cache_path(host: str) -> Path:
+    """Per-user, per-host cache file (never the working directory).
+
+    ``LANGFUSE_TRACE_CACHE`` overrides the location; otherwise
+    ``$XDG_CACHE_HOME/langfuse-trace-mcp/<host>.json`` (default ``~/.cache``).
+    Keying by host keeps prefixes from one Langfuse instance resolving on another.
+    """
+    override = os.environ.get("LANGFUSE_TRACE_CACHE")
+    if override:
+        return Path(override).expanduser()
+    base = os.environ.get("XDG_CACHE_HOME") or Path.home() / ".cache"
+    safe_host = re.sub(r"[^A-Za-z0-9.-]+", "_", host).strip("_") or "default"
+    return Path(base) / "langfuse-trace-mcp" / f"{safe_host}.json"
 
 
 class IdCache:
@@ -55,14 +69,15 @@ class IdCache:
     # -- Persistence (for CLI use) ------------------------------------------
 
     def save(self, path: Path) -> None:
-        """Write the cache to a JSON file."""
+        """Write the cache to a JSON file. Raises OSError if unwritable."""
+        path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(self._ids, indent=2) + "\n")
 
     def load(self, path: Path) -> None:
         """Merge entries from a JSON file into this cache."""
-        if not path.is_file():
-            return
         try:
+            if not path.is_file():
+                return
             data = json.loads(path.read_text())
         except (json.JSONDecodeError, OSError):
             return
@@ -86,9 +101,3 @@ def short_id(uuid_str: str, all_uuids: list[str]) -> str:
             return prefix
     return uuid_lower
 
-
-def matches_prefix(uuid_str: str, prefix: str | None) -> bool:
-    """Check if a UUID starts with the given prefix string."""
-    if prefix is None:
-        return True
-    return uuid_str.lower().startswith(prefix.lower())
